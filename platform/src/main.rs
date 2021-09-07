@@ -1,6 +1,7 @@
 #![allow(unused_imports, unused_variables)]
 pub use controller::*;
 use prometheus::{Encoder, TextEncoder};
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, trace, warn};
 use tracing_subscriber::{prelude::*, EnvFilter, Registry};
 
@@ -9,6 +10,11 @@ use actix_web::{
     web::{self, Data},
     App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+
+#[derive(Serialize, Deserialize)]
+struct Health {
+    status: String,
+}
 
 #[get("/metrics")]
 async fn metrics(c: Data<Manager>, _req: HttpRequest) -> impl Responder {
@@ -21,13 +27,9 @@ async fn metrics(c: Data<Manager>, _req: HttpRequest) -> impl Responder {
 
 #[get("/health")]
 async fn health(_: HttpRequest) -> impl Responder {
-    HttpResponse::Ok().json("healthy")
-}
-
-#[get("/")]
-async fn index(c: Data<Manager>, _req: HttpRequest) -> impl Responder {
-    let state = c.state().await;
-    HttpResponse::Ok().json(&state)
+    HttpResponse::Ok().json(Health{
+        status: "ok".to_string(),
+    })
 }
 
 #[actix_rt::main]
@@ -75,9 +77,8 @@ async fn main() -> Result<()> {
     // Start web server
     let server = HttpServer::new(move || {
         App::new()
-            .data(manager.clone())
+            .app_data(Data::new(manager.clone()))
             .wrap(middleware::Logger::default().exclude("/health"))
-            .service(index)
             .service(health)
             .service(metrics)
     })

@@ -1,5 +1,5 @@
 # Note: You can use any Debian/Ubuntu based image you want. 
-FROM debian
+FROM rust
 
 # [Option] Install zsh
 ARG INSTALL_ZSH="true"
@@ -11,12 +11,12 @@ ARG ENABLE_NONROOT_DOCKER="true"
 ARG USE_MOBY="true"
 
 # Install needed packages and setup non-root user. Use a separate RUN statement to add your
-# own dependencies. A user of "automatic" attempts to reuse an user ID if one already exists.
-ARG USERNAME=funccloud
+# own dependencies. A user of "automatic" attempts to reuse an user ID if one already exists.\
+ARG USERNAME=automatic
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
 COPY library-scripts/*.sh /tmp/library-scripts/
-RUN apt-get update \
+RUN apt-get update && apt-get -y install build-essential \
     && /bin/bash /tmp/library-scripts/common-debian.sh "${INSTALL_ZSH}" "${USERNAME}" "${USER_UID}" "${USER_GID}" "${UPGRADE_PACKAGES}" "true" "true" \
     # Use Docker script from script library to set things up
     && /bin/bash /tmp/library-scripts/docker-debian.sh "${ENABLE_NONROOT_DOCKER}" "/var/run/docker-host.sock" "/var/run/docker.sock" "${USERNAME}" "${USE_MOBY}" \
@@ -28,10 +28,9 @@ RUN apt-get update \
 # The script will also execute CMD if you need to alter startup behaviors.
 ENTRYPOINT [ "/usr/local/share/docker-init.sh" ]
 CMD [ "sleep", "infinity" ]
-
-WORKDIR /home/funccloud
+USER vscode
+WORKDIR /home/vscode
 RUN mkdir -p ~/.local/bin \
-    && curl https://sh.rustup.rs -sSf | bash -s -- -y \
     && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.11.1/kind-linux-amd64 \
     && chmod +x ./kind \
     && mv ./kind ~/.local/bin/kind \
@@ -39,4 +38,3 @@ RUN mkdir -p ~/.local/bin \
     && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
     && chmod +x kubectl \
     && mv ./kubectl ~/.local/bin/kubectl
-ENV PATH="/home/funccloud/.cargo/bin:/home/funccloud/.local/bin:$PATH"

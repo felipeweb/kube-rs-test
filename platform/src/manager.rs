@@ -4,8 +4,7 @@ use futures::{future::BoxFuture, FutureExt, StreamExt};
 use kube::{
     api::{Api, ListParams, Patch, PatchParams, ResourceExt},
     client::Client,
-    CustomResource,
-    Resource
+    CustomResource, Resource,
 };
 use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use maplit::hashmap;
@@ -24,18 +23,25 @@ use tokio::{
 use tracing::{debug, error, event, field, info, instrument, trace, warn, Level, Span};
 
 /// Our Foo custom resource spec
-#[derive(CustomResource, Deserialize, Serialize, Clone, Debug, JsonSchema)]
-#[kube(kind = "Foo", group = "clux.dev", version = "v1", namespaced)]
-#[kube(status = "FooStatus")]
+#[derive(CustomResource, Deserialize, Serialize, Clone, PartialEq, Debug, JsonSchema)]
+#[kube(
+    kind = "Foo",
+    group = "clux.dev",
+    version = "v1",
+    derive = "PartialEq",
+    struct = "Foo",
+    status = "FooStatus",
+    namespaced
+)]
 pub struct FooSpec {
     name: String,
     info: String,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Debug, JsonSchema)]
 pub struct FooStatus {
     is_bad: bool,
-    //last_updated: Option<DateTime<Utc>>,
+    last_updated: Option<DateTime<Utc>>,
 }
 
 // Context for our reconciler
@@ -43,8 +49,7 @@ pub struct FooStatus {
 struct Data {
     /// kubernetes client
     client: Client,
-    /// In memory state
-    state: Arc<RwLock<State>>,
+
     /// Various prometheus metrics
     metrics: Metrics,
 }
@@ -56,7 +61,6 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
     let start = Instant::now();
 
     let client = ctx.get_ref().client.clone();
-    ctx.get_ref().state.write().await.last_event = Utc::now();
     let name = ResourceExt::name(&foo);
     let ns = ResourceExt::namespace(&foo).expect("foo is namespaced");
     let foos: Api<Foo> = Api::namespaced(client, &ns);
@@ -66,7 +70,7 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
         "kind": "Foo",
         "status": FooStatus {
             is_bad: foo.spec.info.contains("bad"),
-            //last_updated: Some(Utc::now()),
+            last_updated: Some(Utc::now()),
         }
     }));
     let ps = PatchParams::apply("cntrlr").force();
@@ -76,13 +80,11 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
         .map_err(Error::KubeError)?;
 
     let duration = start.elapsed().as_millis() as f64 / 1000.0;
-    //let ex = Exemplar::new_with_labels(duration, hashmap! {"trace_id".to_string() => trace_id});
     ctx.get_ref()
         .metrics
         .reconcile_duration
         .with_label_values(&[])
         .observe(duration);
-        //.observe_with_exemplar(duration, ex);
     ctx.get_ref().metrics.handled_events.inc();
     info!("Reconciled Foo \"{}\" in {}", name, ns);
 
@@ -91,6 +93,7 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
         requeue_after: Some(Duration::from_secs(3600 / 2)),
     })
 }
+
 fn error_policy(error: &Error, _ctx: Context<Data>) -> ReconcilerAction {
     warn!("reconcile failed: {:?}", error);
     ReconcilerAction {
@@ -115,22 +118,12 @@ impl Metrics {
         .unwrap();
 
         Metrics {
-            handled_events: register_int_counter!("foo_controller_handled_events", "handled events").unwrap(),
+            handled_events: register_int_counter!(
+                "foo_controller_handled_events",
+                "handled events"
+            )
+            .unwrap(),
             reconcile_duration: reconcile_histogram,
-        }
-    }
-}
-
-/// In-memory reconciler state exposed on /
-#[derive(Clone, Serialize)]
-pub struct State {
-    #[serde(deserialize_with = "from_ts")]
-    pub last_event: DateTime<Utc>,
-}
-impl State {
-    fn new() -> Self {
-        State {
-            last_event: Utc::now(),
         }
     }
 }
@@ -138,8 +131,6 @@ impl State {
 /// Data owned by the Manager
 #[derive(Clone)]
 pub struct Manager {
-    /// In memory state
-    state: Arc<RwLock<State>>,
     /// Various prometheus metrics
     metrics: Metrics,
 }
@@ -153,19 +144,16 @@ impl Manager {
     pub async fn new() -> (Self, BoxFuture<'static, ()>) {
         let client = Client::try_default().await.expect("create client");
         let metrics = Metrics::new();
-        let state = Arc::new(RwLock::new(State::new()));
         let context = Context::new(Data {
             client: client.clone(),
             metrics: metrics.clone(),
-            state: state.clone(),
         });
 
         let foos = Api::<Foo>::all(client);
         // Ensure CRD is installed before loop-watching
-        let _r = foos
-            .list(&ListParams::default().limit(1))
-            .await
-            .expect("is the crd installed? please run: cargo run --bin crdgen | kubectl apply -f -");
+        let _r = foos.list(&ListParams::default().limit(1)).await.expect(
+            "is the crd installed? please run: cargo run --bin crdgen | kubectl apply -f -",
+        );
 
         // All good. Start controller and return its future.
         let drainer = Controller::new(foos, ListParams::default())
@@ -174,16 +162,11 @@ impl Manager {
             .for_each(|_| futures::future::ready(()))
             .boxed();
 
-        (Self { state, metrics }, drainer)
+        (Self { metrics }, drainer)
     }
 
     /// Metrics getter
     pub fn metrics(&self) -> Vec<MetricFamily> {
         default_registry().gather()
-    }
-
-    /// State getter
-    pub async fn state(&self) -> State {
-        self.state.read().await.clone()
     }
 }
