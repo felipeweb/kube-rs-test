@@ -7,20 +7,6 @@ edition = "2018"
 default = []
 telemetry = []
 
-[[bin]]
-doc = false
-name = "controller"
-path = "src/main.rs"
-
-[[bin]]
-doc = false
-name = "crdgen"
-path = "src/crdgen.rs"
-
-[lib]
-name = "controller"
-path = "src/lib.rs"
-
 [dependencies]
 actix-rt = "2.1.0"
 actix-web = "4.0.0-beta.8"
@@ -43,3 +29,4 @@ tracing-opentelemetry = "0.12.0"
 opentelemetry = { version = "0.13.0", features = ["trace", "rt-tokio"] }
 opentelemetry-otlp = { version = "0.6.0", features = ["tokio"] }
 prometheus = "0.12.0"
+seahorse = "1.1"

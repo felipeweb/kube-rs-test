@@ -14,10 +14,5 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// State machinery for kube, as exposeable to actix
 pub mod manager;
-pub use manager::Manager;
-
-/// Generated type, for crdgen
-pub use manager::Foo;
-
-/// Log and trace integrations
-pub mod telemetry;
+pub mod commands;
+mod k8sserver;

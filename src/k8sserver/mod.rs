@@ -1,39 +1,17 @@
-#![allow(unused_imports, unused_variables)]
-pub use controller::*;
-use prometheus::{Encoder, TextEncoder};
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, trace, warn};
-use tracing_subscriber::{prelude::*, EnvFilter, Registry};
-
+use crate::manager::Manager;
+use crate::Result;
 use actix_web::{
     get, middleware,
     web::{self, Data},
     App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
-
-#[derive(Serialize, Deserialize)]
-struct Health {
-    status: String,
-}
-
-#[get("/metrics")]
-async fn metrics(c: Data<Manager>, _req: HttpRequest) -> impl Responder {
-    let metrics = c.metrics();
-    let encoder = TextEncoder::new();
-    let mut buffer = vec![];
-    encoder.encode(&metrics, &mut buffer).unwrap();
-    HttpResponse::Ok().body(buffer)
-}
-
-#[get("/health")]
-async fn health(_: HttpRequest) -> impl Responder {
-    HttpResponse::Ok().json(Health{
-        status: "ok".to_string(),
-    })
-}
+use tracing::{debug, error, info, trace, warn};
+use tracing_subscriber::{prelude::*, EnvFilter, Registry};
+mod health;
+mod metrics;
 
 #[actix_rt::main]
-async fn main() -> Result<()> {
+pub async fn start_server(addr: String) -> Result<()> {
     #[cfg(feature = "telemetry")]
     let otlp_endpoint = std::env::var("OPENTELEMETRY_ENDPOINT_URL")
         .expect("Need a otel tracing collector configured");
@@ -79,11 +57,11 @@ async fn main() -> Result<()> {
         App::new()
             .app_data(Data::new(manager.clone()))
             .wrap(middleware::Logger::default().exclude("/health"))
-            .service(health)
-            .service(metrics)
+            .service(health::health)
+            .service(metrics::metrics)
     })
-    .bind("0.0.0.0:8080")
-    .expect("Can not bind to 0.0.0.0:8080")
+    .bind(addr)
+    .expect("Can not bind")
     .shutdown_timeout(0);
 
     tokio::select! {

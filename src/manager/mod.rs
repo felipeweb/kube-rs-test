@@ -1,4 +1,6 @@
-use crate::{telemetry, Error, Result};
+pub mod metrics;
+pub mod telemetry;
+use crate::{ Error, Result};
 use chrono::prelude::*;
 use futures::{future::BoxFuture, FutureExt, StreamExt};
 use kube::{
@@ -6,12 +8,12 @@ use kube::{
     client::Client,
     CustomResource, Resource,
 };
+use prometheus::{
+    default_registry, proto::MetricFamily,
+};
 use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use maplit::hashmap;
-use prometheus::{
-    default_registry, proto::MetricFamily, register_histogram_vec, register_int_counter,
-    HistogramOpts, HistogramVec, IntCounter,
-};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -51,7 +53,7 @@ struct Data {
     client: Client,
 
     /// Various prometheus metrics
-    metrics: Metrics,
+    metrics: metrics::Metrics,
 }
 
 #[instrument(skip(ctx), fields(trace_id))]
@@ -101,38 +103,11 @@ fn error_policy(error: &Error, _ctx: Context<Data>) -> ReconcilerAction {
     }
 }
 
-/// Metrics exposed on /metrics
-#[derive(Clone)]
-pub struct Metrics {
-    pub handled_events: IntCounter,
-    pub reconcile_duration: HistogramVec,
-}
-impl Metrics {
-    fn new() -> Self {
-        let reconcile_histogram = register_histogram_vec!(
-            "foo_controller_reconcile_duration_seconds",
-            "The duration of reconcile to complete in seconds",
-            &[],
-            vec![0.01, 0.1, 0.25, 0.5, 1., 5., 15., 60.]
-        )
-        .unwrap();
-
-        Metrics {
-            handled_events: register_int_counter!(
-                "foo_controller_handled_events",
-                "handled events"
-            )
-            .unwrap(),
-            reconcile_duration: reconcile_histogram,
-        }
-    }
-}
-
 /// Data owned by the Manager
 #[derive(Clone)]
 pub struct Manager {
     /// Various prometheus metrics
-    metrics: Metrics,
+    metrics: metrics::Metrics,
 }
 
 /// Example Manager that owns a Controller for Foo
@@ -143,7 +118,7 @@ impl Manager {
     /// It is up to `main` to wait for the controller stream.
     pub async fn new() -> (Self, BoxFuture<'static, ()>) {
         let client = Client::try_default().await.expect("create client");
-        let metrics = Metrics::new();
+        let metrics = metrics::Metrics::new();
         let context = Context::new(Data {
             client: client.clone(),
             metrics: metrics.clone(),
